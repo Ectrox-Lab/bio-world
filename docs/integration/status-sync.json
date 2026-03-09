@@ -1,0 +1,21 @@
+{
+  "repo": "bio-world",
+  "branch": "work",
+  "commit": "HEAD",
+  "last_synced_other_repo": "atlas-hec-v2.1:contract+audit ingested",
+  "interface_version": "0.2.0-phase2",
+  "owned_modules": [
+    "bioworld_mvp/src/main.rs",
+    "bioworld_mvp/src/bio_world/experiments/experiment_runner.rs",
+    "bioworld_mvp/src/bio_world/engine/world.rs",
+    "bioworld_mvp/src/bio_world/output/csv_logger.rs"
+  ],
+  "blocking_issues": [
+    "Need atlas-approved effect criteria for shuffled vs real interpretation",
+    "Phase 3 continuity probe hook still pending"
+  ],
+  "next_expected_inputs": [
+    "Atlas CI/r equation mapping for continuity probe",
+    "Atlas sentinel comparison acceptance rubric"
+  ]
+}
