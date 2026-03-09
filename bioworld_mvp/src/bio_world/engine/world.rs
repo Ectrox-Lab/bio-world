@@ -29,6 +29,9 @@ pub struct Config {
     pub ticks: u32,
     pub pressure: f64,
     pub akashic_on: bool,
+    // P1 Experiment parameters
+    pub disable_lineage_memory: bool,     // P1-A: Memory KO
+    pub cooperation_multiplier: f64,       // P1-B: Cooperation suppression
 }
 
 #[derive(Clone, Debug, Default)]
@@ -236,17 +239,21 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                         c.energy -= rcost;
                         ledger.cost_reproduction += rcost;
                         births += 1;
-                        let mut child_lineage =
-                            LineageMemory::inherit_from(&c.lineage_memory, &mut rng);
-                        if c.archive_samples_taken < SAMPLES_PER_LIFETIME {
-                            if let Some(record) = memory_archive
-                                .random_sample(&mut rng, &ArchiveSamplingPolicy::default())
-                            {
-                                child_lineage
-                                    .push_lesson(CausalArchive::compress_to_lesson(record));
-                                c.archive_samples_taken += 1;
+                        // P1-A: Memory KO - disable lineage memory inheritance and archive sampling
+                        let mut child_lineage = if cfg.disable_lineage_memory {
+                            LineageMemory::new(c.lineage_id) // Fresh memory, no inheritance
+                        } else {
+                            let mut inherited = LineageMemory::inherit_from(&c.lineage_memory, &mut rng);
+                            if c.archive_samples_taken < SAMPLES_PER_LIFETIME {
+                                if let Some(record) = memory_archive
+                                    .random_sample(&mut rng, &ArchiveSamplingPolicy::default())
+                                {
+                                    inherited.push_lesson(CausalArchive::compress_to_lesson(record));
+                                    c.archive_samples_taken += 1;
+                                }
                             }
-                        }
+                            inherited
+                        };
                         child = Some(Cell {
                             id: next_id,
                             position: np,
@@ -287,6 +294,7 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                 &mut b_single_success,
                 &mut b_multi_attempt,
                 &mut b_multi_success,
+                cfg.cooperation_multiplier,
             );
         }
 
@@ -505,6 +513,7 @@ fn resolve_boss(
     s_success: &mut u64,
     m_attempt: &mut u64,
     m_success: &mut u64,
+    cooperation_multiplier: f64,
 ) {
     let idx: Vec<usize> = (0..cells.len())
         .filter(|i| manhattan(cells[*i].position, b.pos) <= 4)
@@ -546,10 +555,12 @@ fn resolve_boss(
         cells[*i].cooperation_state.synchrony_score = synchrony;
     }
     if success {
+        // P1-B: Cooperation suppression - apply multiplier to reward
+        let adjusted_reward = b.difficulty.reward * cooperation_multiplier;
         for i in &idx {
-            cells[*i].energy += b.difficulty.reward / n as f64;
+            cells[*i].energy += adjusted_reward / n as f64;
         }
-        ledger.input_boss_reward += b.difficulty.reward;
+        ledger.input_boss_reward += adjusted_reward;
         if n == 1 {
             *s_success += 1;
         } else {
