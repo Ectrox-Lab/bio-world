@@ -21,3 +21,13 @@ These fields are emitted in `runs/*/u*/memory.csv`.
 - Archive must not write cell memory or inject cell strategy.
 - Archive sampling probability must be bounded by `ARCHIVE_SAMPLE_PROBABILITY`.
 - Cross-layer accesses must be auditable through `MemoryAccessGuard` logs/errors.
+
+
+## Sentinel runnable condition names
+- `baseline_full`
+- `no_L1`
+- `no_L2`
+- `L3_off`
+- `L3_real_p001`
+- `L3_shuffled_p001`
+- `L3_overpowered_direct`

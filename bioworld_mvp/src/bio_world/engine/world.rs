@@ -28,6 +28,47 @@ use crate::bio_world::metrics::cdi::compute_cdi;
 use crate::bio_world::metrics::stability::{extinction_probability, hazard_rate};
 use crate::bio_world::output::csv_logger::CsvLoggers;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SentinelMode {
+    BaselineFull,
+    NoL1,
+    NoL2,
+    L3Off,
+    L3RealP001,
+    L3ShuffledP001,
+    L3OverpoweredDirect,
+}
+
+impl SentinelMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::BaselineFull => "baseline_full",
+            Self::NoL1 => "no_L1",
+            Self::NoL2 => "no_L2",
+            Self::L3Off => "L3_off",
+            Self::L3RealP001 => "L3_real_p001",
+            Self::L3ShuffledP001 => "L3_shuffled_p001",
+            Self::L3OverpoweredDirect => "L3_overpowered_direct",
+        }
+    }
+
+    pub fn l1_enabled(&self) -> bool {
+        !matches!(self, Self::NoL1)
+    }
+    pub fn l2_enabled(&self) -> bool {
+        !matches!(self, Self::NoL2)
+    }
+    pub fn l3_enabled(&self) -> bool {
+        !matches!(self, Self::L3Off | Self::NoL2)
+    }
+    pub fn l3_shuffled(&self) -> bool {
+        matches!(self, Self::L3ShuffledP001)
+    }
+    pub fn overpowered_direct(&self) -> bool {
+        matches!(self, Self::L3OverpoweredDirect)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub universe_id: usize,
@@ -35,9 +76,7 @@ pub struct Config {
     pub ticks: u32,
     pub pressure: f64,
     pub akashic_on: bool,
-    // P1 Experiment parameters
-    pub disable_lineage_memory: bool,     // P1-A: Memory KO
-    pub cooperation_multiplier: f64,       // P1-B: Cooperation suppression
+    pub sentinel_mode: SentinelMode,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -50,6 +89,13 @@ pub struct RunSummary {
     pub single_boss_success: f64,
     pub multi_boss_success: f64,
     pub adaptation_gain: f64,
+    pub archive_sample_attempts: u64,
+    pub archive_sample_successes: u64,
+    pub archive_influenced_births: u64,
+    pub lineage_diversity: f64,
+    pub top1_lineage_share: f64,
+    pub strategy_entropy: f64,
+    pub collapse_event_count: u64,
 }
 
 pub struct Rng(u64);
@@ -161,6 +207,13 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
     let mut b_single_success = 0u64;
     let mut b_multi_attempt = 0u64;
     let mut b_multi_success = 0u64;
+    let mut total_archive_sample_attempts = 0u64;
+    let mut total_archive_sample_successes = 0u64;
+    let mut total_archive_influenced_births = 0u64;
+    let mut sum_lineage_diversity = 0.0f64;
+    let mut sum_top1_lineage_share = 0.0f64;
+    let mut sum_strategy_entropy = 0.0f64;
+    let mut observed_ticks = 0u64;
     let baseline_energy = cells.iter().map(|c| c.energy).sum::<f64>() / cells.len() as f64;
     let mut extinction_events = 0u32;
 
@@ -224,15 +277,19 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                 c.energy -= c.signal_state.investment * 0.3;
                 ledger.cost_signal += c.signal_state.investment * 0.3;
 
-                c.cell_memory.record_energy(c.energy as f32);
-                c.cell_memory.record_signal(c.signal_state.phase as f32);
-                c.cell_memory.record_experience(format!("tick:{}", tick));
-                c.cell_memory.stress_level = (1.0 - (c.energy as f32 / 100.0)).clamp(0.0, 1.0);
-                c.cell_memory.decay();
-                debug_assert!(c.cell_memory.recent_energy_history.len() <= MAX_CELL_MEMORY_WINDOW);
-                let mcost = c.cell_memory.recent_energy_history.len() as f64 * 0.01;
-                c.energy -= mcost;
-                ledger.cost_memory += mcost;
+                if cfg.sentinel_mode.l1_enabled() {
+                    c.cell_memory.record_energy(c.energy as f32);
+                    c.cell_memory.record_signal(c.signal_state.phase as f32);
+                    c.cell_memory.record_experience(format!("tick:{}", tick));
+                    c.cell_memory.stress_level = (1.0 - (c.energy as f32 / 100.0)).clamp(0.0, 1.0);
+                    c.cell_memory.decay();
+                    debug_assert!(
+                        c.cell_memory.recent_energy_history.len() <= MAX_CELL_MEMORY_WINDOW
+                    );
+                    let mcost = c.cell_memory.recent_energy_history.len() as f64 * 0.01;
+                    c.energy -= mcost;
+                    ledger.cost_memory += mcost;
+                }
 
                 if can_reproduce(c) && rng.bool(0.2 + c.dna.learning_rate * 0.2) {
                     let np = (
@@ -250,9 +307,14 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                         c.energy -= rcost;
                         ledger.cost_reproduction += rcost;
                         births += 1;
-                        let mut child_lineage =
-                            LineageMemory::inherit_from(&c.lineage_memory, &mut rng);
-                        if c.archive_samples_taken < SAMPLES_PER_LIFETIME {
+                        let mut child_lineage = if cfg.sentinel_mode.l2_enabled() {
+                            LineageMemory::inherit_from(&c.lineage_memory, &mut rng)
+                        } else {
+                            LineageMemory::new(c.lineage_id)
+                        };
+                        if cfg.sentinel_mode.l3_enabled()
+                            && c.archive_samples_taken < SAMPLES_PER_LIFETIME
+                        {
                             archive_sample_attempts += 1;
                             access_guard
                                 .validate(AccessRequest {
@@ -265,12 +327,25 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                             if let Some(record) = memory_archive
                                 .random_sample(&mut rng, &ArchiveSamplingPolicy::default())
                             {
-                                child_lineage
-                                    .push_lesson(CausalArchive::compress_to_lesson(record));
+                                let lesson = if cfg.sentinel_mode.l3_shuffled() {
+                                    let mut shuffled = record.clone();
+                                    shuffled.lineage_id = (rng.next_u64() % 1_000_000) as u64;
+                                    shuffled.event_type = "shuffled".to_string();
+                                    CausalArchive::compress_to_lesson(&shuffled)
+                                } else {
+                                    CausalArchive::compress_to_lesson(record)
+                                };
+                                child_lineage.push_lesson(lesson);
                                 archive_sample_successes += 1;
                                 archive_influenced_births += 1;
                                 c.archive_samples_taken += 1;
                             }
+                        }
+                        if cfg.sentinel_mode.overpowered_direct()
+                            && !memory_archive.records.is_empty()
+                        {
+                            child_lineage.preferred_strategy = "oracle_direct".to_string();
+                            archive_influenced_births += 1;
                         }
                         debug_assert!(
                             child_lineage.distilled_lessons.len() <= MAX_DISTILLED_LESSONS
@@ -343,12 +418,14 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
                     lineage_id: c.lineage_id,
                     reason: death_reason.clone(),
                 });
-                memory_archive.queue_record(CausalArchiveRecord {
-                    generation: tick,
-                    lineage_id: c.lineage_id,
-                    event_type: "death".to_string(),
-                    payload: death_reason,
-                });
+                if cfg.sentinel_mode.l3_enabled() || cfg.sentinel_mode.overpowered_direct() {
+                    memory_archive.queue_record(CausalArchiveRecord {
+                        generation: tick,
+                        lineage_id: c.lineage_id,
+                        event_type: "death".to_string(),
+                        payload: death_reason,
+                    });
+                }
             }
         }
         if alive.len() > max_pop {
@@ -536,6 +613,13 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
         total_births += births as u64;
         total_deaths += deaths as u64;
         total_mut += mut_count as u64;
+        total_archive_sample_attempts += archive_sample_attempts as u64;
+        total_archive_sample_successes += archive_sample_successes as u64;
+        total_archive_influenced_births += archive_influenced_births as u64;
+        sum_lineage_diversity += lineage_diversity;
+        sum_top1_lineage_share += top1_lineage_share;
+        sum_strategy_entropy += strategy_entropy;
+        observed_ticks += 1;
 
         let drift = if cfg.pressure > 1.2 {
             "high_pressure_drift"
@@ -575,6 +659,7 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
         writeln!(f, "{},{},{},{}", e.tick, e.lineage_id, e.parameter, e.delta).unwrap();
     }
 
+    let denom = observed_ticks.max(1) as f64;
     RunSummary {
         universe_id: cfg.universe_id,
         seed: cfg.seed,
@@ -584,6 +669,13 @@ pub fn run_universe(cfg: &Config, archive: &mut AkashicArchive, base_runs: &str)
         single_boss_success: single,
         multi_boss_success: multi,
         adaptation_gain: final_energy - baseline_energy,
+        archive_sample_attempts: total_archive_sample_attempts,
+        archive_sample_successes: total_archive_sample_successes,
+        archive_influenced_births: total_archive_influenced_births,
+        lineage_diversity: sum_lineage_diversity / denom,
+        top1_lineage_share: sum_top1_lineage_share / denom,
+        strategy_entropy: sum_strategy_entropy / denom,
+        collapse_event_count: extinction_events as u64,
     }
 }
 
@@ -675,4 +767,20 @@ fn variance(values: &[f64]) -> f64 {
     }
     let mean = values.iter().sum::<f64>() / values.len() as f64;
     values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64
+}
+
+#[cfg(test)]
+mod sentinel_mode_tests {
+    use super::SentinelMode;
+
+    #[test]
+    fn test_shuffled_mode_flags() {
+        assert!(SentinelMode::L3ShuffledP001.l3_enabled());
+        assert!(SentinelMode::L3ShuffledP001.l3_shuffled());
+    }
+
+    #[test]
+    fn test_overpowered_mode_flag() {
+        assert!(SentinelMode::L3OverpoweredDirect.overpowered_direct());
+    }
 }

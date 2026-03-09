@@ -1,16 +1,14 @@
 # Open Questions (Atlas Sync)
 
-## Unresolved interface items
-1. `CI` and `r` source-of-truth formulas for PR-3 continuity probe are not yet surfaced in this repo.
-2. Expected sentinel-run summary schema (single file vs per-condition tree) needs final alignment.
+## blocker
+1. Need Atlas-approved acceptance threshold for `L3_real_p001` vs `L3_shuffled_p001` (which metric and minimum effect size).
+2. Need canonical CI/r formula source in this repo before Phase 3 continuity probe hook.
 
-## Semantic mismatches to resolve
-- Current Bio-World emits memory instrumentation in `memory.csv`; confirm Atlas expects per-tick or per-run aggregation.
-- Confirm whether `lineage_diversity` should remain normalized (`distinct_lineages / population`) or absolute count.
+## semantic mismatch
+1. `lineage_diversity` currently normalized (`distinct_lineages / population`); Atlas may request absolute count.
+2. `collapse_event_count` currently uses extinction events from world loop; confirm if Atlas expects per-run terminal collapse only.
 
-## Falsification blockers
-- L3 shuffled control path is still pending (PR-2).
-- Overpowered direct-control negative control is still pending (PR-2).
-
-## Upstream patch requests
-- Atlas should provide canonical continuity probe columns and units for direct compatibility.
+## next-phase proposal
+1. Add a small comparison command/script to diff `per_run.csv` between two sentinel modes.
+2. Add deterministic seed matrix checks for shuffled vs real sampling bandwidth parity.
+3. Add explicit anti-oracle regression tests around overpowered negative-control mode.
