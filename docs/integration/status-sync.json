@@ -2,12 +2,11 @@
   "repo": "bio-world",
   "branch": "work",
   "commit": "HEAD",
-  "phase": "phase4.5",
-  "triage_status": "HOLD_pending_atlas_adjudication",
+  "phase": "phase4.6",
+  "triage_status": "HOLD_FOR_MINIMAL_RERUN_RESOLVED_CORE",
   "core_conditions_completed": [
     "baseline_full",
     "no_L2",
-    "L3_off",
     "L3_real_p001",
     "L3_shuffled_p001"
   ],
@@ -20,22 +19,21 @@
     "strategy_entropy": "present_true_value",
     "collapse_event_count": "present_true_value"
   },
-  "strongest_evidence": "Shuffled control keeps sampling pipeline/bandwidth path while changing context mapping, and produces directional divergence vs L3_real_p001 in diversity/share/entropy summaries.",
-  "next_action": "Wait for atlas interpretation thresholds; if requested, execute minimal rerun for missing optional conditions or field-specific closure only.",
+  "strongest_evidence": "All four core conditions were rerun at 5000/8 with complete per_run.csv + telemetry; shuffled and real share same sampling path but differ in remapped content and directional summary outcomes.",
+  "next_action": "Atlas adjudication on interpretation threshold; optionally request tiny follow-up invariant test patch for shuffled-vs-real bandwidth equivalence.",
   "generated_outputs": [
     "bioworld_mvp/runs/sentinel/baseline_full/per_run.csv",
     "bioworld_mvp/runs/sentinel/no_L2/per_run.csv",
-    "bioworld_mvp/runs/sentinel/L3_off/per_run.csv",
     "bioworld_mvp/runs/sentinel/L3_real_p001/per_run.csv",
     "bioworld_mvp/runs/sentinel/L3_shuffled_p001/per_run.csv",
     "bioworld_mvp/runs/sentinel/*/u*/memory.csv",
-    "docs/integration/SEMANTIC_NOTES_PHASE45.md",
-    "docs/integration/PHASE45_METRIC_SUMMARY.md",
-    "docs/integration/PHASE45_SHUFFLED_CONTROL_NOTE.md"
+    "docs/integration/PHASE46_MISSING_OUTPUTS.md",
+    "docs/integration/PHASE46_RERUN_RESULTS.md",
+    "docs/integration/PHASE46_STRONGER_SHUFFLED_EQUIVALENCE.md",
+    "docs/integration/PHASE46_ANTI_ORACLE_GAPS.md"
   ],
   "blockers_summary": [
-    "Need atlas-defined interpretation threshold for real vs shuffled",
-    "Optional conditions no_L1 and L3_overpowered_direct not included in this phase4.5 summary",
-    "Need dedicated invariant test for shuffled-vs-real bandwidth equivalence"
+    "Atlas interpretation threshold for real-vs-shuffled remains unresolved",
+    "No formal invariant test yet for shuffled-vs-real bandwidth equivalence"
   ]
 }
